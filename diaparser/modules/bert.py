@@ -140,11 +140,23 @@ class BertEmbedding(nn.Module):
             bert = bert[-self.n_layers:]
             # [batch_size, n_subwords, hidden_size]
             bert = self.scalar_mix(bert)
+            if self.use_attentions:
+                attn = bert.new_zeros(bert.shape[0], subwords.shape[1], subwords.shape[1])
+                attn[:,0:self.max_len,0:self.max_len] = outputs[-1][self.attention_layer][:,self.head,:,:]
+
             for i in range(self.stride, (subwords.shape[1]-self.max_len+self.stride-1)//self.stride*self.stride+1, self.stride):
-                part = self.bert(subwords[:, i:i+self.max_len], attention_mask=bert_mask[:, i:i+self.max_len].float())[bert_idx]
+                opart = self.bert(subwords[:, i:i+self.max_len], attention_mask=bert_mask[:, i:i+self.max_len].float())
+                part = opart[bert_idx]
                 bert = torch.cat((bert, self.scalar_mix(part[-self.n_layers:])[:, self.max_len-self.stride:]), 1)
+                if self.use_attentions:
+                    part = opart[-1][self.attention_layer][:,self.head,:,:]
+                    attn[:,i+self.max_len-self.stride:i+self.max_len,i:i+self.max_len] = part[:,self.max_len-self.stride:,:]
         else:
             bert = outputs[0]
+            if self.use_attentions:
+                # layer 9 represents syntax
+                # [batch, n_subwords, n_subwords]
+                attn = outputs[-1][self.attention_layer][:,self.head,:,:]
         
         # [batch_size, n_subwords]
         bert_lens = mask.sum(-1)
@@ -156,10 +168,6 @@ class BertEmbedding(nn.Module):
         embed = embed.sum(2) / bert_lens.unsqueeze(-1)  # sum wordpieces
         seq_attn = None
         if self.use_attentions:
-            # (a list of layers) = [ [batch, num_heads, sent_len, sent_len] ]
-            attns = outputs[-1]
-            # [batch, n_subwords, n_subwords]
-            attn = attns[self.attention_layer][:,self.head,:,:]  # layer 9 represents syntax
             # squeeze out multiword tokens
             mask2 = ~mask
             mask2[:,:,0] = True  # keep first column
