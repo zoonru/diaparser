@@ -62,6 +62,8 @@ class Dataset(torch.utils.data.Dataset):
     def __getattr__(self, name):
         if name in self.__dict__:
             return self.__dict__[name]
+        if name == '__getitems__': #called from torch/utils/data/_utils/fetch.py", line 55, in fetch if hasattr(self.dataset, "__getitems__") and self.dataset.__getitems__:
+            return None
         return [getattr(sentence, name) for sentence in self.sentences]
 
     def __setattr__(self, name, value):
